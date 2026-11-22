@@ -17,12 +17,36 @@
 // stand in for /bot and /output:
 //   mkdir -p out && MAKEFUN_BOT_DIR=. MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const botDir = process.env.MAKEFUN_BOT_DIR ?? "/bot";
 const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
 const fileName = "VIDEO.json";
+
+// A wrong address would fail the entry_link check silently at grading
+// time, so refuse to hand over anything that is not a TikTok video URL
+// from the account the ad was posted from.
+const videoUrlPattern =
+  /^https:\/\/www\.tiktok\.com\/@lubitzy\/video\/[0-9]+\/?$/;
+
+let videoAddress: unknown;
+try {
+  videoAddress = JSON.parse(readFileSync(join(botDir, fileName), "utf8")).url;
+} catch (err) {
+  console.error(
+    `${fileName} could not be read from ${botDir}: ${(err as Error).message}`,
+  );
+  process.exit(1);
+}
+
+if (typeof videoAddress !== "string" || !videoUrlPattern.test(videoAddress)) {
+  console.error(
+    `${fileName} does not name a TikTok video from @lubitzy: ` +
+      `${JSON.stringify(videoAddress)}`,
+  );
+  process.exit(1);
+}
 
 mkdirSync(outputDir, { recursive: true });
 
@@ -32,5 +56,14 @@ try {
   console.error(
     `${fileName} could not be copied from ${botDir}: ${(err as Error).message}`,
   );
+  process.exit(1);
+}
+
+// Read the copy back and refuse to finish unless it is byte-for-byte
+// the file that was validated above, so a partial or failed write
+// can never reach the grader unnoticed.
+const copied = readFileSync(join(outputDir, fileName), "utf8");
+if (JSON.parse(copied).url !== videoAddress) {
+  console.error(`${fileName} in ${outputDir} does not match the validated copy.`);
   process.exit(1);
 }
